@@ -130,6 +130,7 @@ class CandidatePickerDialog(QDialog):
         self._translation_request_key = ""
         self._current_clip_path: Path | None = None
         self._current_clip_candidate: ContextCandidate | None = None
+        self._prepared_clip_paths: dict[str, Path] = {}
         self._progress_lines: list[str] = []
         self._requested_max_candidates = initial_max_candidates
 
@@ -302,6 +303,11 @@ class CandidatePickerDialog(QDialog):
             return
         if self._audio_job_running:
             self.player_hint_label.setText("Audio extraction is already running.")
+            return
+        prepared_clip_path = self._prepared_clip_path(candidate)
+        if prepared_clip_path is not None:
+            self._play_local_clip(candidate, prepared_clip_path)
+            self._update_progress_status("Replaying the prepared sentence audio.")
             return
 
         self._audio_job_running = True
@@ -494,6 +500,7 @@ class CandidatePickerDialog(QDialog):
     def _play_local_clip(self, candidate: ContextCandidate, clip_path: Path) -> None:
         self._current_clip_path = clip_path
         self._current_clip_candidate = candidate
+        self._prepared_clip_paths[self._candidate_cache_key(candidate)] = clip_path
         self.audio_panel.setText(
             "Prepared local audio clip:\n"
             + str(clip_path.name)
@@ -534,8 +541,8 @@ class CandidatePickerDialog(QDialog):
 
     def _update_preview(self) -> None:
         candidate = self.selected_candidate()
-        self._current_clip_path = None
         self._current_clip_candidate = candidate
+        self._current_clip_path = self._prepared_clip_path(candidate)
         self._sync_append_button_state()
         if candidate is None:
             self.transcript_label.setText("No transcript available.")
@@ -571,8 +578,17 @@ class CandidatePickerDialog(QDialog):
         self.meta_label.setText(" | ".join(metadata) if metadata else "No extra metadata available.")
 
         self.audio_panel.setText(
-            "Ready to extract local audio for this sentence.\n"
-            "Progress messages will appear here while yt-dlp tries each browser cookie source."
+            (
+                "Prepared local audio clip:\n"
+                + str(self._current_clip_path.name)
+                + "\n\n"
+                + candidate.sentence_text
+            )
+            if self._current_clip_path is not None
+            else (
+                "Ready to extract local audio for this sentence.\n"
+                "Progress messages will appear here while yt-dlp tries each browser cookie source."
+            )
         )
 
     def _load_translation(self, candidate: ContextCandidate) -> None:
@@ -647,3 +663,27 @@ class CandidatePickerDialog(QDialog):
             self.append_sound_button.setToolTip(
                 f"Append the extracted clip into '{self._sound_field_name}'."
             )
+
+    def _candidate_cache_key(self, candidate: ContextCandidate | None) -> str:
+        if candidate is None:
+            return ""
+        return "||".join(
+            (
+                candidate.video_id or "",
+                candidate.timestamp or "",
+                candidate.source_url or "",
+                candidate.sentence_text or "",
+            )
+        )
+
+    def _prepared_clip_path(self, candidate: ContextCandidate | None) -> Path | None:
+        candidate_key = self._candidate_cache_key(candidate)
+        if not candidate_key:
+            return None
+        clip_path = self._prepared_clip_paths.get(candidate_key)
+        if clip_path is None:
+            return None
+        if not clip_path.exists() or clip_path.stat().st_size <= 0:
+            self._prepared_clip_paths.pop(candidate_key, None)
+            return None
+        return clip_path
