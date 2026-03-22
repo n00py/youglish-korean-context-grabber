@@ -1,0 +1,15 @@
+{
+  "source_field_name": "Korean",
+  "sound_field_name": "Sound",
+  "max_candidates": 5,
+  "exact_match_bias": true,
+  "exact_match_only": false,
+  "max_sentence_length": 120,
+  "duplicate_detection_enabled": true,
+  "provider_order": [
+    "scrape_fallback",
+    "youglish_widget"
+  ],
+  "request_timeout_seconds": 12,
+  "user_agent": "Anki YouGlish Korean Context Grabber/0.1"
+}
