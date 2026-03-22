@@ -326,6 +326,13 @@ def candidate_hit_label(candidate: ContextCandidate) -> str:
     return candidate.timestamp or format_seconds_label(candidate_start_seconds(candidate))
 
 
+def candidate_youtube_timestamp_url(candidate: ContextCandidate) -> str:
+    video_id = (candidate.video_id or "").strip()
+    if not video_id:
+        return ""
+    return f"https://www.youtube.com/watch?v={video_id}&t={candidate_start_seconds(candidate)}s"
+
+
 def format_seconds_label(total_seconds: float | int) -> str:
     if total_seconds < 0:
         total_seconds = 0

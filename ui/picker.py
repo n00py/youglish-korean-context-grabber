@@ -28,6 +28,7 @@ from ..services.audio_clips import (
     YouGlishAudioClipService,
     candidate_hit_label,
     candidate_range_label,
+    candidate_youtube_timestamp_url,
 )
 from ..services.logging_utils import get_logger
 from ..services.sound_field import append_clip_to_note_field, note_has_field
@@ -532,6 +533,10 @@ class CandidatePickerDialog(QDialog):
         if candidate.source_url:
             escaped_url = html.escape(candidate.source_url, quote=True)
             metadata.append(f'<a href="{escaped_url}">Open YouGlish clip</a>')
+        youtube_timestamp_url = candidate_youtube_timestamp_url(candidate)
+        if youtube_timestamp_url:
+            escaped_youtube_url = html.escape(youtube_timestamp_url, quote=True)
+            metadata.append(f'<a href="{escaped_youtube_url}">Open YouTube clip</a>')
         if candidate.duplicate_note_ids:
             metadata.append(
                 "Also seen in note(s): "
