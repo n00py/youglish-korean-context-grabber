@@ -18,6 +18,7 @@ An Anki desktop add-on for Korean vocabulary and sentence cards that reads a Kor
   - duplicate warnings
 - Uses YouGlish for transcript text and timestamps, then extracts a local sentence audio clip with `yt-dlp` and `ffmpeg`
 - Can show an English translation for the selected sentence through DeepL Free when a local API key file is present
+- Adds a `YouGlish Context Settings...` entry under `Tools` so users can save or clear a DeepL key inside Anki
 - Automatically loops through browser cookies it can find and stops at the first browser that yields a usable YouTube audio stream
 - Plays the extracted sentence clip inline when Qt multimedia is available
 - Lets you refetch the current query with a larger result count from a dropdown in the viewer
@@ -240,6 +241,13 @@ These come from the earlier note-writing version of the add-on. They are still p
 ## DeepL Key Setup
 
 The DeepL API key is intentionally not stored in the tracked repo config.
+
+The easiest setup is now inside Anki:
+
+1. Open `Tools`
+2. Click `YouGlish Context Settings...`
+3. Paste your DeepL key
+4. Click `Save Key`
 
 To enable translation on a local install, put your key in:
 

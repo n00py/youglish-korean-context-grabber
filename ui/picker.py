@@ -580,7 +580,9 @@ class CandidatePickerDialog(QDialog):
             self.translation_label.setText("")
             return
         if not self._translation_service.is_configured():
-            self.translation_label.setText("DeepL translation is not configured on this machine yet.")
+            self.translation_label.setText(
+                "DeepL translation is not configured yet. Open Tools > YouGlish Context Settings... to add your key."
+            )
             return
 
         sentence_text = candidate.sentence_text.strip()

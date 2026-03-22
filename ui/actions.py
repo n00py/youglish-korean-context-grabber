@@ -10,10 +10,12 @@ from ..config import AddonConfig, config_from_dict
 from ..services.context_service import ContextServiceError, YouGlishContextService
 from ..services.logging_utils import get_logger
 from .picker import CandidatePickerDialog, RESULT_DONE, RESULT_REFRESH, RESULT_SKIP
+from .settings_dialog import open_deepl_settings_dialog
 
 
 EDITOR_BUTTON_LABEL = "YouGlish Context"
 BROWSER_ACTION_LABEL = "Fetch YouGlish Context"
+SETTINGS_ACTION_LABEL = "YouGlish Context Settings..."
 ROOT_MODULE = "youglish_korean_context_grabber"
 
 
@@ -31,6 +33,10 @@ def install_hooks(module_name: str) -> None:
         gui_hooks.browser_will_show_context_menu.append(_add_browser_context_action)
     if hasattr(gui_hooks, "reviewer_will_show_context_menu"):
         gui_hooks.reviewer_will_show_context_menu.append(_add_reviewer_context_action)
+    if hasattr(gui_hooks, "main_window_did_init"):
+        gui_hooks.main_window_did_init.append(_install_settings_actions)
+    else:
+        _install_settings_actions()
 
 
 def _addon_dir() -> Path:
@@ -186,6 +192,27 @@ def _run_reviewer_flow(reviewer) -> None:
     if result == int(QDialog.DialogCode.Rejected):
         return
     tooltip("YouGlish viewer closed.")
+
+
+def _open_settings_dialog(*_args, **_kwargs) -> int:
+    return open_deepl_settings_dialog(parent=mw)
+
+
+def _install_settings_actions(*_args, **_kwargs) -> None:
+    if getattr(mw, "_youglish_context_settings_installed", False):
+        return
+    mw._youglish_context_settings_installed = True
+
+    if hasattr(mw, "addonManager") and hasattr(mw.addonManager, "setConfigAction"):
+        try:
+            mw.addonManager.setConfigAction(ROOT_MODULE, _open_settings_dialog)
+        except Exception:
+            pass
+
+    if hasattr(mw, "form") and hasattr(mw.form, "menuTools"):
+        action = QAction(SETTINGS_ACTION_LABEL, mw)
+        qconnect(action.triggered, lambda _checked=False: _open_settings_dialog())
+        mw.form.menuTools.addAction(action)
 
 
 def _add_editor_button(buttons, editor):

@@ -12,6 +12,34 @@ class TranslationError(RuntimeError):
     pass
 
 
+def deepl_api_key_path(addon_dir: Path) -> Path:
+    user_files_dir = addon_dir / "user_files"
+    user_files_dir.mkdir(parents=True, exist_ok=True)
+    return user_files_dir / "deepl_api_key.txt"
+
+
+def load_deepl_api_key(addon_dir: Path, logger: logging.Logger | None = None) -> str:
+    key_path = deepl_api_key_path(addon_dir)
+    try:
+        return key_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+    except Exception as exc:
+        if logger is not None:
+            logger.warning("Could not read DeepL API key file: %s", exc)
+        return ""
+
+
+def save_deepl_api_key(addon_dir: Path, api_key: str) -> Path:
+    key_path = deepl_api_key_path(addon_dir)
+    key_path.write_text((api_key or "").strip() + "\n", encoding="utf-8")
+    return key_path
+
+
+def clear_deepl_api_key(addon_dir: Path) -> None:
+    deepl_api_key_path(addon_dir).unlink(missing_ok=True)
+
+
 class DeepLTranslationService:
     def __init__(
         self,
@@ -25,7 +53,7 @@ class DeepLTranslationService:
         self._logger = logger or logging.getLogger(__name__)
         self._user_files_dir = addon_dir / "user_files"
         self._user_files_dir.mkdir(parents=True, exist_ok=True)
-        self._key_path = self._user_files_dir / "deepl_api_key.txt"
+        self._key_path = deepl_api_key_path(addon_dir)
         self._cache_path = self._user_files_dir / "translation_cache.json"
         self._target_language = (target_language or "EN-US").strip().upper()
         self._timeout_seconds = max(1, int(timeout_seconds))
@@ -93,13 +121,7 @@ class DeepLTranslationService:
         return f"deepl_free::{self._target_language}::{text}"
 
     def _load_api_key(self) -> str:
-        try:
-            return self._key_path.read_text(encoding="utf-8").strip()
-        except FileNotFoundError:
-            return ""
-        except Exception as exc:
-            self._logger.warning("Could not read DeepL API key file: %s", exc)
-            return ""
+        return load_deepl_api_key(self._addon_dir, self._logger)
 
     def _load_cache(self) -> dict[str, str]:
         try:
