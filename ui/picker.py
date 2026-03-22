@@ -7,6 +7,7 @@ from aqt import mw
 from aqt.qt import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -98,6 +99,7 @@ class CandidatePickerDialog(QDialog):
         note_label: str,
         note: object | None = None,
         sound_field_name: str = "Sound",
+        initial_max_candidates: int = 5,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -114,6 +116,7 @@ class CandidatePickerDialog(QDialog):
         self._current_clip_path: Path | None = None
         self._current_clip_candidate: ContextCandidate | None = None
         self._progress_lines: list[str] = []
+        self._requested_max_candidates = initial_max_candidates
 
         self.setWindowTitle("YouGlish Context")
         self.resize(1080, 680)
@@ -198,6 +201,13 @@ class CandidatePickerDialog(QDialog):
         splitter.setStretchFactor(1, 1)
 
         button_row = QHBoxLayout()
+        results_label = QLabel("Results", self)
+        self.max_candidates_combo = QComboBox(self)
+        for value in range(3, 21):
+            self.max_candidates_combo.addItem(str(value), value)
+        combo_index = self.max_candidates_combo.findData(int(initial_max_candidates))
+        if combo_index >= 0:
+            self.max_candidates_combo.setCurrentIndex(combo_index)
         self.play_button = QPushButton("Play Audio", self)
         self.play_button.setEnabled(bool(candidates))
         self.stop_button = QPushButton("Stop", self)
@@ -210,6 +220,9 @@ class CandidatePickerDialog(QDialog):
         self.skip_button = QPushButton("Skip", self)
         self.refresh_button = QPushButton("Refresh Search", self)
         self.cancel_button = QPushButton("Cancel", self)
+        button_row.addWidget(results_label)
+        button_row.addWidget(self.max_candidates_combo)
+        button_row.addSpacing(8)
         button_row.addWidget(self.play_button)
         button_row.addWidget(self.stop_button)
         button_row.addWidget(self.copy_button)
@@ -242,6 +255,15 @@ class CandidatePickerDialog(QDialog):
         if row < 0 or row >= len(self._candidates):
             return None
         return self._candidates[row]
+
+    def requested_max_candidates(self) -> int:
+        selected_value = self.max_candidates_combo.currentData()
+        if isinstance(selected_value, int):
+            return selected_value
+        try:
+            return int(self.max_candidates_combo.currentText())
+        except (TypeError, ValueError):
+            return self._requested_max_candidates
 
     def _sync_selection(self) -> None:
         row = self.list_widget.currentRow()

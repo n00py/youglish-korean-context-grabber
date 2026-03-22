@@ -67,13 +67,22 @@ def _query_from_note(note: object, config: AddonConfig) -> str:
     return value
 
 
-def _fetch_candidates_for_note(note: object):
+def _fetch_candidates_for_note(note: object, max_candidates_override: int | None = None):
     config = _config()
     query = _query_from_note(note, config)
     service = _service()
-    mw.progress.start(immediate=True, label=f"Fetching YouGlish clips for {query}...")
+    requested_max_candidates = config.effective_max_candidates_for(max_candidates_override)
+    mw.progress.start(
+        immediate=True,
+        label=f"Fetching YouGlish clips for {query} ({requested_max_candidates} results)...",
+    )
     try:
-        candidates = service.fetch_candidates(query, col=mw.col, ignore_note_id=note.id)
+        candidates = service.fetch_candidates(
+            query,
+            col=mw.col,
+            ignore_note_id=note.id,
+            max_candidates_override=requested_max_candidates,
+        )
     finally:
         mw.progress.finish()
     return query, candidates
@@ -81,18 +90,21 @@ def _fetch_candidates_for_note(note: object):
 
 def _show_viewer(note: object) -> int:
     config = _config()
+    max_candidates_override = config.effective_max_candidates
     while True:
-        query, candidates = _fetch_candidates_for_note(note)
+        query, candidates = _fetch_candidates_for_note(note, max_candidates_override=max_candidates_override)
         dialog = CandidatePickerDialog(
             query,
             candidates,
             _note_label(note),
             note=note,
             sound_field_name=config.sound_field_name,
+            initial_max_candidates=max_candidates_override,
             parent=mw,
         )
         result = dialog.exec()
         if result == RESULT_REFRESH:
+            max_candidates_override = dialog.requested_max_candidates()
             continue
         return result
 

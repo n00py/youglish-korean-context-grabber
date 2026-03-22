@@ -19,6 +19,7 @@ An Anki desktop add-on for Korean vocabulary and sentence cards that reads a Kor
 - Uses YouGlish for transcript text and timestamps, then extracts a local sentence audio clip with `yt-dlp` and `ffmpeg`
 - Automatically loops through browser cookies it can find and stops at the first browser that yields a usable YouTube audio stream
 - Plays the extracted sentence clip inline when Qt multimedia is available
+- Lets you refetch the current query with a larger result count from a dropdown in the viewer
 - Lets you explicitly append a liked clip into the note's `Sound` field when that field exists
 - Handles selected browser notes one-by-one with a viewer dialog for each note
 - Does not edit note fields unless you explicitly click `Append to Sound`
@@ -96,7 +97,8 @@ addons21/
 - `max_candidates`
   - Default: `5`
   - What it does: controls how many ranked YouGlish candidates the viewer shows for a search.
-  - Effective range: the add-on clamps this to `3` through `10`, even if you enter something outside that range.
+  - Effective range: the add-on clamps this to `3` through `20`, even if you enter something outside that range.
+  - Viewer behavior: the picker also has a dropdown that lets you refetch the current query with any value from `3` to `20` without editing the config first.
   - Lower values: faster to scan, less clutter.
   - Higher values: more chances to find a good sentence, but more noise.
 

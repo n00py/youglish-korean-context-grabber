@@ -26,13 +26,15 @@ class YouGlishContextService:
         query: str,
         col: object | None = None,
         ignore_note_id: int | None = None,
+        max_candidates_override: int | None = None,
     ) -> List[ContextCandidate]:
         normalized_query = normalize_text(query)
         if not normalized_query:
             raise ContextServiceError("The configured source field is empty.")
+        requested_max_candidates = self._config.effective_max_candidates_for(max_candidates_override)
         request = ContextFetchRequest(
             query=normalized_query,
-            max_candidates=self._config.effective_max_candidates,
+            max_candidates=requested_max_candidates,
             exact_match_only=self._config.exact_match_only,
             max_sentence_length=self._config.max_sentence_length,
         )
@@ -63,7 +65,7 @@ class YouGlishContextService:
                     ignore_note_id=ignore_note_id,
                 )
         ranked = rank_candidates(prepared, normalized_query, self._config)
-        return ranked[: self._config.effective_max_candidates]
+        return ranked[:requested_max_candidates]
 
     def _providers(self) -> Iterable[BaseContextProvider]:
         provider_map: Dict[str, BaseContextProvider] = {

@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Mapping, Tuple
 
+MIN_CANDIDATES = 3
+MAX_CANDIDATES = 20
+
 
 @dataclass(frozen=True)
 class DestinationFieldMapping:
@@ -48,7 +51,20 @@ class AddonConfig:
 
     @property
     def effective_max_candidates(self) -> int:
-        return min(max(int(self.max_candidates), 3), 10)
+        return clamp_max_candidates(self.max_candidates)
+
+    def effective_max_candidates_for(self, requested_max_candidates: int | None) -> int:
+        if requested_max_candidates is None:
+            return self.effective_max_candidates
+        return clamp_max_candidates(requested_max_candidates)
+
+
+def clamp_max_candidates(value: int | str | float | None) -> int:
+    try:
+        numeric_value = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        numeric_value = 5
+    return min(max(numeric_value, MIN_CANDIDATES), MAX_CANDIDATES)
 
 
 def _tuple_from_iterable(value: Any, fallback: Iterable[str]) -> Tuple[str, ...]:
