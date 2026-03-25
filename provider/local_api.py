@@ -13,7 +13,7 @@ from .models import ContextCandidate, ContextFetchRequest
 
 class LocalCorpusProvider(BaseContextProvider):
     name = "local_api"
-    display_name = "Kimchi Local"
+    display_name = "BanGlish"
 
     def __init__(self, config: AddonConfig) -> None:
         self._config = config

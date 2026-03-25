@@ -60,6 +60,39 @@ def _highlight_html(sentence: str, query: str) -> str:
     )
 
 
+def _provider_display_name(candidate: ContextCandidate) -> str:
+    raw_name = (candidate.provider_name or "").strip()
+    normalized = raw_name.lower()
+    if normalized in {"banglish", "kimchi local", "kimchi_local_api", "local_api"}:
+        return "BanGlish"
+    if "youglish" in normalized or normalized in {"scrape_fallback", "youglish_widget"}:
+        return "YouGlish"
+    return raw_name or "Unknown"
+
+
+def _provider_badge_html(candidate: ContextCandidate) -> str:
+    label = html.escape(_provider_display_name(candidate))
+    if label == "BanGlish":
+        style = "background:#dff3e4;color:#1f6b3b;border:1px solid #afd7ba;"
+    elif label == "YouGlish":
+        style = "background:#e9eefb;color:#234a9f;border:1px solid #bfd0f6;"
+    else:
+        style = "background:#efefef;color:#444;border:1px solid #d0d0d0;"
+    return (
+        f"<span style=\"{style}border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;\">"
+        f"{label}</span>"
+    )
+
+
+def _source_link_label(candidate: ContextCandidate) -> str:
+    provider = _provider_display_name(candidate)
+    if provider == "BanGlish":
+        return "Open BanGlish item"
+    if provider == "YouGlish":
+        return "Open YouGlish clip"
+    return "Open source clip"
+
+
 class CandidateRow(QWidget):
     def __init__(self, candidate: ContextCandidate, query: str, parent=None) -> None:
         super().__init__(parent)
@@ -74,6 +107,7 @@ class CandidateRow(QWidget):
         layout.addWidget(sentence_label)
 
         details = []
+        details.append(f"Source {_provider_display_name(candidate)}")
         if candidate.source_title:
             details.append(candidate.source_title)
         hit_label = candidate_hit_label(candidate)
@@ -555,6 +589,7 @@ class CandidatePickerDialog(QDialog):
         self._load_translation(candidate)
 
         metadata = []
+        metadata.append(_provider_badge_html(candidate))
         if candidate.source_title:
             metadata.append(html.escape(candidate.source_title))
         hit_label = candidate_hit_label(candidate)
@@ -565,7 +600,7 @@ class CandidatePickerDialog(QDialog):
             metadata.append(f"Sentence audio: {html.escape(clip_range)}")
         if candidate.source_url:
             escaped_url = html.escape(candidate.source_url, quote=True)
-            metadata.append(f'<a href="{escaped_url}">Open YouGlish clip</a>')
+            metadata.append(f'<a href="{escaped_url}">{_source_link_label(candidate)}</a>')
         youtube_timestamp_url = candidate_youtube_timestamp_url(candidate)
         if youtube_timestamp_url:
             escaped_youtube_url = html.escape(youtube_timestamp_url, quote=True)

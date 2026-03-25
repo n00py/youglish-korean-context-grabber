@@ -149,7 +149,7 @@ class KimchiCorpusAPIServer:
             "source_url": kimchi_url,
             "timestamp": timestamp,
             "video_id": youtube_video_id,
-            "provider_name": "kimchi_local_api",
+            "provider_name": "BanGlish",
             "raw_payload": {
                 "kimchi_id": kimchi_id,
                 "youtube_video_id": youtube_video_id,
