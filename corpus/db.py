@@ -257,6 +257,13 @@ class KimchiCorpusDatabase:
                 (status, finished_at, error_message, run_id),
             )
 
+    def pause_discovery_run(self, run_id: int, finished_at: str, error_message: str | None = None) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE discovery_runs SET status = 'paused', finished_at = ?, error_message = ? WHERE id = ?",
+                (finished_at, error_message, run_id),
+            )
+
     def latest_discovery_cursor(self, recipe_hash: str, *, active_only: bool = False) -> dict[str, Any] | None:
         with self.connect() as conn:
             status_filter = "AND status IN ('running', 'paused')" if active_only else ""
@@ -656,23 +663,59 @@ class KimchiCorpusDatabase:
             ).fetchall()
             return [str(row["kimchi_id"]) for row in rows]
 
-    def pending_subtitle_video_ids(self, limit: int) -> list[str]:
+    def pending_subtitle_video_ids(self, limit: int, *, failed_retry_before: str | None = None) -> list[str]:
         with self.connect() as conn:
+            cooldown_sql = ""
+            params: list[Any] = []
+            if failed_retry_before:
+                cooldown_sql = """
+                  AND (
+                    sr.youtube_video_id IS NULL
+                    OR sr.status != 'failed'
+                    OR sr.last_attempted_at IS NULL
+                    OR sr.last_attempted_at < ?
+                  )
+                """
+                params.append(failed_retry_before)
             rows = conn.execute(
                 """
-                SELECT youtube_video_id FROM youtube_videos
-                WHERE youtube_video_id IS NOT NULL
-                  AND youtube_video_id != ''
+                SELECT yv.youtube_video_id
+                FROM youtube_videos yv
+                LEFT JOIN subtitle_runs sr ON sr.youtube_video_id = yv.youtube_video_id
+                WHERE yv.youtube_video_id IS NOT NULL
+                  AND yv.youtube_video_id != ''
+                """ + cooldown_sql + """
                 ORDER BY
-                  CASE WHEN subtitle_status = 'ready' THEN 1 ELSE 0 END ASC,
-                  last_checked_at IS NOT NULL,
-                  last_checked_at ASC,
-                  youtube_video_id ASC
+                  CASE WHEN yv.subtitle_status = 'ready' THEN 1 ELSE 0 END ASC,
+                  yv.last_checked_at IS NOT NULL,
+                  yv.last_checked_at ASC,
+                  yv.youtube_video_id ASC
                 LIMIT ?
                 """,
-                (limit,),
+                tuple(params + [limit]),
             ).fetchall()
         return [str(row["youtube_video_id"]) for row in rows]
+
+    def subtitle_retry_allowed(self, youtube_video_id: str, *, failed_retry_before: str | None = None) -> bool:
+        if not failed_retry_before:
+            return True
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT status, last_attempted_at
+                FROM subtitle_runs
+                WHERE youtube_video_id = ?
+                """,
+                (youtube_video_id,),
+            ).fetchone()
+        if row is None:
+            return True
+        if row["status"] != "failed":
+            return True
+        attempted_at = row["last_attempted_at"]
+        if attempted_at is None:
+            return True
+        return str(attempted_at) < failed_retry_before
 
     def _apply_schema_migrations(self, conn: sqlite3.Connection) -> None:
         columns = {

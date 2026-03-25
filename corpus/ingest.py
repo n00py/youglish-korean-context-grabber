@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import random
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +49,9 @@ class KimchiCorpusIngestor:
         progress_callback: Callable[[str], None] | None = None,
         max_pages: int | None = None,
         resume: bool = True,
+        sleep_between_pages: float = 0.0,
+        sleep_between_items: float = 0.0,
+        retry_cooldown_seconds: float = 900.0,
     ) -> BackfillSummary:
         run_id = self._db.begin_discovery_run(self._recipe_hash, utc_now_iso(), resume=resume)
         cursor_state = self._db.latest_discovery_cursor(self._recipe_hash, active_only=True) if resume else None
@@ -95,22 +100,31 @@ class KimchiCorpusIngestor:
                 items_discovered += len(items)
                 self._emit(progress_callback, f"Fetched Kimchi browse page {pages_fetched} with {len(items)} items.")
                 hydrated_delta, subtitle_delta = self._hydrate_and_fetch_subtitles(
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    sleep_between_items=sleep_between_items,
+                    retry_cooldown_seconds=retry_cooldown_seconds,
                 )
                 hydrated += hydrated_delta
                 subtitle_ready += subtitle_delta
+                self._sleep_with_jitter(sleep_between_pages)
                 if next_cursor is None or next_cursor.last_row_id == (cursor.last_row_id if cursor else ""):
                     break
                 cursor = next_cursor
             while self._db.pending_hydration_ids(1):
                 hydrated_delta, subtitle_delta = self._hydrate_and_fetch_subtitles(
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    sleep_between_items=sleep_between_items,
+                    retry_cooldown_seconds=retry_cooldown_seconds,
                 )
                 if hydrated_delta == 0 and subtitle_delta == 0:
                     break
                 hydrated += hydrated_delta
                 subtitle_ready += subtitle_delta
             self._db.finish_discovery_run(run_id, utc_now_iso(), None)
+        except KeyboardInterrupt as exc:
+            self._db.pause_discovery_run(run_id, utc_now_iso(), str(exc) or "Interrupted by user")
+            self._emit(progress_callback, "Paused discovery cleanly after interrupt.")
+            raise
         except Exception as exc:
             self._db.finish_discovery_run(run_id, utc_now_iso(), str(exc))
             raise
@@ -130,9 +144,12 @@ class KimchiCorpusIngestor:
         *,
         progress_callback: Callable[[str], None] | None = None,
         limit: int = 100,
+        sleep_between_items: float = 0.0,
+        retry_cooldown_seconds: float = 900.0,
     ) -> int:
         processed = 0
-        for youtube_video_id in self._db.pending_subtitle_video_ids(limit):
+        failed_retry_before = _iso_timestamp_seconds_ago(retry_cooldown_seconds) if retry_cooldown_seconds > 0 else None
+        for youtube_video_id in self._db.pending_subtitle_video_ids(limit, failed_retry_before=failed_retry_before):
             self._emit(progress_callback, f"Rechecking subtitles for {youtube_video_id}...")
             checked_at = utc_now_iso()
             try:
@@ -146,6 +163,7 @@ class KimchiCorpusIngestor:
                 continue
             self._db.store_subtitle_track(youtube_video_id, result, checked_at)
             processed += 1
+            self._sleep_with_jitter(sleep_between_items)
         return processed
 
     def _hydrate_and_fetch_subtitles(
@@ -153,9 +171,12 @@ class KimchiCorpusIngestor:
         *,
         progress_callback: Callable[[str], None] | None = None,
         batch_size: int = 50,
+        sleep_between_items: float = 0.0,
+        retry_cooldown_seconds: float = 900.0,
     ) -> tuple[int, int]:
         hydrated = 0
         subtitle_ready = 0
+        failed_retry_before = _iso_timestamp_seconds_ago(retry_cooldown_seconds) if retry_cooldown_seconds > 0 else None
         for kimchi_id in self._db.pending_hydration_ids(batch_size):
             attempted_at = utc_now_iso()
             self._emit(progress_callback, f"Hydrating Kimchi item {kimchi_id}...")
@@ -168,6 +189,14 @@ class KimchiCorpusIngestor:
                 self._logger.warning("Hydration failed for %s: %s", kimchi_id, exc)
                 continue
             if not youtube_video_id:
+                self._sleep_with_jitter(sleep_between_items)
+                continue
+            if not self._db.subtitle_retry_allowed(
+                youtube_video_id,
+                failed_retry_before=failed_retry_before,
+            ):
+                self._emit(progress_callback, f"Skipping recent failed subtitle retry for {youtube_video_id}.")
+                self._sleep_with_jitter(sleep_between_items)
                 continue
             self._emit(progress_callback, f"Fetching Korean manual subtitles for {youtube_video_id}...")
             try:
@@ -178,11 +207,24 @@ class KimchiCorpusIngestor:
             except SubtitleFetchError as exc:
                 self._db.record_subtitle_failure(youtube_video_id, utc_now_iso(), str(exc))
                 self._logger.warning("Subtitle fetch failed for %s: %s", youtube_video_id, exc)
+                self._sleep_with_jitter(sleep_between_items)
                 continue
             self._db.store_subtitle_track(youtube_video_id, track_result, utc_now_iso())
             subtitle_ready += 1
+            self._sleep_with_jitter(sleep_between_items)
         return hydrated, subtitle_ready
 
     def _emit(self, progress_callback: Callable[[str], None] | None, message: str) -> None:
         if progress_callback is not None:
             progress_callback(message)
+
+    def _sleep_with_jitter(self, seconds: float) -> None:
+        delay = max(0.0, float(seconds))
+        if delay <= 0:
+            return
+        time.sleep(delay + random.uniform(0.0, min(0.5, delay * 0.25)))
+
+
+def _iso_timestamp_seconds_ago(seconds: float) -> str:
+    cutoff = datetime.now(timezone.utc).timestamp() - max(0.0, seconds)
+    return datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
