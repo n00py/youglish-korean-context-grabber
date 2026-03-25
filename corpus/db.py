@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Mapping
 
-from .text import json_dumps, normalize_text
+from .text import expand_search_forms, json_dumps, normalize_text
 
 
 SCHEMA_STATEMENTS = (
@@ -540,10 +540,11 @@ class KimchiCorpusDatabase:
         min_stars: int | None = None,
         group_id: str | None = None,
     ) -> list[dict[str, Any]]:
+        expanded_forms = [form for form in expand_search_forms(query) if form]
         normalized_query = normalize_text(query)
-        if not normalized_query:
+        if not normalized_query or not expanded_forms:
             return []
-        query_tokens = [token for token in re_split_tokens(query) if token]
+        query_tokens = expanded_forms
         params: list[Any] = []
         video_filter_sql = ""
         if query_tokens:
@@ -558,8 +559,10 @@ class KimchiCorpusDatabase:
                     HAVING COUNT(DISTINCT normalized_term) >= 1
                 )
             """
-        exact_filter_sql = "AND INSTR(sc.normalized_text, ?) > 0"
-        params.append(normalized_query)
+        search_forms = [normalized_query] if exact_only else expanded_forms
+        filter_clauses = ["INSTR(sc.normalized_text, ?) > 0" for _ in search_forms]
+        exact_filter_sql = "AND (" + " OR ".join(filter_clauses) + ")"
+        params.extend(search_forms)
         metadata_filters = ""
         if min_stars is not None:
             metadata_filters += " AND km.stars >= ?"
@@ -780,18 +783,3 @@ class KimchiCorpusDatabase:
             if str(source.get("source_type", "")) == "youtube_video":
                 return str(source.get("value", "") or "").strip()
         return ""
-
-
-def re_split_tokens(query: str) -> list[str]:
-    pieces = []
-    current = []
-    for character in query:
-        if character.isalnum() or "\uac00" <= character <= "\ud7a3":
-            current.append(character.lower())
-            continue
-        if current:
-            pieces.append("".join(current))
-            current = []
-    if current:
-        pieces.append("".join(current))
-    return pieces
