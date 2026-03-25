@@ -67,6 +67,35 @@ class KimchiAPIClient:
             payload=payload,
         )
 
+    def browse_channel_groups(
+        self,
+        cursor: KimchiBrowseCursor | None = None,
+        *,
+        min_stars: int = 1,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "ordering": "stars",
+            "sources": ["youtube_channel"],
+        }
+        if cursor is not None:
+            payload["last_row_id"] = cursor.last_row_id
+            payload["last_star_count"] = cursor.last_star_count
+            payload["last_complexity_score"] = cursor.last_complexity_score
+            payload["last_comprehension_percentage"] = cursor.last_comprehension_percentage
+        response = self._json_request(
+            path="/v2/media/browse/unified",
+            method="POST",
+            payload=payload,
+        )
+        items = response.get("items")
+        if isinstance(items, list):
+            response["items"] = [
+                item
+                for item in items
+                if isinstance(item, Mapping) and _group_star_count(item) >= min_stars
+            ]
+        return response
+
     def get_media_item(self, kimchi_id: str) -> Dict[str, Any]:
         return self._json_request(
             path=f"/v2/media/item/{kimchi_id}",
@@ -117,6 +146,17 @@ def youtube_source_id(payload: Mapping[str, Any]) -> str:
     return ""
 
 
+def youtube_channel_source_id(payload: Mapping[str, Any]) -> str:
+    for source in payload.get("sources") or []:
+        if not isinstance(source, Mapping):
+            continue
+        if str(source.get("source_type", "")) == "youtube_channel":
+            value = str(source.get("value", "")).strip()
+            if value:
+                return value
+    return ""
+
+
 def latest_browse_cursor(items: Iterable[Mapping[str, Any]]) -> KimchiBrowseCursor | None:
     last_item = None
     for item in items:
@@ -137,3 +177,13 @@ def latest_browse_cursor(items: Iterable[Mapping[str, Any]]) -> KimchiBrowseCurs
             str(comprehension) if comprehension not in (None, "") else None
         ),
     )
+
+
+def _group_star_count(payload: Mapping[str, Any]) -> int:
+    stars = payload.get("stars")
+    if stars in (None, ""):
+        return 0
+    try:
+        return int(stars)
+    except (TypeError, ValueError):
+        return 0
