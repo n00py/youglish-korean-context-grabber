@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import logging
 import platform
 import re
@@ -136,6 +137,73 @@ def parse_json3_cues(raw_payload: str) -> list[SubtitleCue]:
             )
         )
         cue_index += 1
+    return _dedupe_cues(cues)
+
+
+def parse_vtt_cues(raw_payload: str) -> list[SubtitleCue]:
+    cues: list[SubtitleCue] = []
+    cue_index = 0
+    blocks = re.split(r"\r?\n\r?\n+", raw_payload.strip())
+    for block in blocks:
+        lines = [line.strip("\ufeff") for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if lines[0].upper().startswith("WEBVTT") or lines[0].startswith(("NOTE", "STYLE", "REGION")):
+            continue
+        if "-->" not in lines[0] and len(lines) > 1 and "-->" in lines[1]:
+            lines = lines[1:]
+        if not lines or "-->" not in lines[0]:
+            continue
+        match = re.match(
+            r"(?P<start>\d{2}:\d{2}(?::\d{2})?\.\d{3})\s+-->\s+(?P<end>\d{2}:\d{2}(?::\d{2})?\.\d{3})",
+            lines[0],
+        )
+        if not match:
+            continue
+        text = clean_text(_strip_vtt_markup("\n".join(lines[1:])))
+        if not text:
+            continue
+        start_ms = _parse_vtt_timestamp_ms(match.group("start"))
+        end_ms = max(start_ms + 1, _parse_vtt_timestamp_ms(match.group("end")))
+        cues.append(
+            SubtitleCue(
+                cue_index=cue_index,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                text=text,
+                normalized_text=normalize_text(text),
+                tokenized_text=tokenized_text_blob(text),
+            )
+        )
+        cue_index += 1
+    return _dedupe_cues(cues)
+
+
+def _parse_vtt_timestamp_ms(value: str) -> int:
+    parts = value.split(":")
+    if len(parts) == 2:
+        hours = 0
+        minutes, seconds_ms = parts
+    elif len(parts) == 3:
+        hours, minutes, seconds_ms = parts
+    else:
+        return 0
+    seconds, millis = seconds_ms.split(".", 1)
+    return (
+        int(hours) * 3_600_000
+        + int(minutes) * 60_000
+        + int(seconds) * 1_000
+        + int(millis[:3].ljust(3, "0"))
+    )
+
+
+def _strip_vtt_markup(value: str) -> str:
+    unescaped = html.unescape(value)
+    without_tags = re.sub(r"<[^>]+>", "", unescaped)
+    return without_tags.replace("&nbsp;", " ")
+
+
+def _dedupe_cues(cues: Iterable[SubtitleCue]) -> list[SubtitleCue]:
     deduped: list[SubtitleCue] = []
     seen = set()
     for cue in cues:
@@ -234,9 +302,9 @@ class ManualKoreanSubtitleFetcher:
             "--sub-langs",
             "ko.*,ko",
             "--sub-format",
-            "json3",
+            "vtt",
             "--convert-subs",
-            "json3",
+            "vtt",
             "--force-overwrites",
             "--output",
             str(output_template),
@@ -255,11 +323,11 @@ class ManualKoreanSubtitleFetcher:
                 path.unlink(missing_ok=True)
 
     def _existing_track_result(self, youtube_video_id: str) -> SubtitleTrackResult | None:
-        for path in sorted(self._cache_dir.glob(f"{youtube_video_id}*.ko*.json3")):
+        for path in sorted(self._candidate_subtitle_paths(youtube_video_id)):
             if ".live_chat." in path.name or path.stat().st_size <= 0:
                 continue
             raw_payload = path.read_text(encoding="utf-8", errors="replace")
-            cues = parse_json3_cues(raw_payload)
+            cues = self._parse_cues_for_path(path, raw_payload)
             if not cues:
                 continue
             checksum = hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
@@ -274,8 +342,21 @@ class ManualKoreanSubtitleFetcher:
             )
         return None
 
+    def _candidate_subtitle_paths(self, youtube_video_id: str) -> Iterable[Path]:
+        patterns = (
+            f"{youtube_video_id}*.ko*.vtt",
+            f"{youtube_video_id}*.ko*.json3",
+        )
+        for pattern in patterns:
+            yield from self._cache_dir.glob(pattern)
+
+    def _parse_cues_for_path(self, path: Path, raw_payload: str) -> list[SubtitleCue]:
+        if path.suffix == ".vtt":
+            return parse_vtt_cues(raw_payload)
+        return parse_json3_cues(raw_payload)
+
     def _language_code_from_path(self, path: Path) -> str:
-        match = re.search(r"\.(ko(?:-[A-Za-z0-9]+)?)\.json3$", path.name)
+        match = re.search(r"\.(ko(?:-[A-Za-z0-9]+)?)\.(?:json3|vtt)$", path.name)
         if match:
             return match.group(1)
         return "ko"
