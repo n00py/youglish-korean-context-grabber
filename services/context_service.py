@@ -43,6 +43,7 @@ class YouGlishContextService:
         )
         candidates: Sequence[ContextCandidate] = ()
         errors: List[str] = []
+        had_non_error_provider = False
         for provider in self._providers():
             try:
                 provider_candidates = provider.fetch_candidates(request)
@@ -54,10 +55,11 @@ class YouGlishContextService:
                 self._logger.exception("%s crashed for %r", provider.name, normalized_query)
                 errors.append(f"{provider.name}: {exc}")
                 continue
+            had_non_error_provider = True
             if provider_candidates:
                 candidates = provider_candidates
                 break
-        if not candidates and errors:
+        if not candidates and errors and not had_non_error_provider:
             raise ContextServiceError("; ".join(errors))
         prepared = self._deduplicate(candidates)
         if self._config.duplicate_detection_enabled and col is not None:
