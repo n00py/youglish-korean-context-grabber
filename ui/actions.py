@@ -229,7 +229,7 @@ def _install_settings_actions(*_args, **_kwargs) -> None:
 def _reviewer_button_html() -> str:
     return (
         f"<div id=\"{REVIEWER_BUTTON_MARKER}\" "
-        "style=\"position:fixed;left:24px;bottom:20px;z-index:9999;display:flex;gap:10px;\">"
+        "style=\"position:fixed;left:24px;bottom:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;align-items:flex-start;\">"
         + _reviewer_overlay_button(REVIEWER_BUTTON_URL, "BanGlish", "Open BanGlish Context", wide=True)
         + _reviewer_overlay_button(REVIEWER_AUDIO_URL, "Audio", "Fetch Korean audio for the current note")
         + _reviewer_overlay_button(REVIEWER_IMAGES_URL, "Images", "Quick add images for the current note")
@@ -238,22 +238,23 @@ def _reviewer_button_html() -> str:
 
 
 def _reviewer_overlay_button(url: str, label: str, title: str, wide: bool = False) -> str:
-    min_width = "104px" if wide else "86px"
+    min_width = "92px" if wide else "76px"
     return (
         f"<button onclick=\"pycmd('{url}')\" "
         f"title=\"{title}\" "
         "style=\""
         f"min-width:{min_width};"
-        "height:36px;"
-        "padding:0 16px;"
+        "height:30px;"
+        "padding:0 12px;"
         "border-radius:999px;"
         "border:1px solid #cfcfcf;"
         "background:#ffffff;"
         "color:#222222;"
         "font-weight:600;"
-        "font-size:13px;"
+        "font-size:12px;"
+        "line-height:1;"
         "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
-        "box-shadow:0 1px 2px rgba(0,0,0,0.08),0 3px 10px rgba(0,0,0,0.05);"
+        "box-shadow:0 1px 2px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04);"
         "cursor:pointer;"
         "outline:none;"
         f"\">{label}</button>"
