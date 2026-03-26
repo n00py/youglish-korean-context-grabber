@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 
 from aqt import gui_hooks, mw
@@ -19,6 +21,8 @@ BROWSER_ACTION_LABEL = "Fetch BanGlish Context"
 SETTINGS_ACTION_LABEL = "BanGlish Context Settings..."
 ROOT_MODULE = "youglish_korean_context_grabber"
 REVIEWER_BUTTON_URL = "banglish_review"
+REVIEWER_AUDIO_URL = "banglish_audio"
+REVIEWER_IMAGES_URL = "banglish_images"
 REVIEWER_BUTTON_MARKER = "banglish-review-overlay"
 
 
@@ -225,11 +229,21 @@ def _install_settings_actions(*_args, **_kwargs) -> None:
 def _reviewer_button_html() -> str:
     return (
         f"<div id=\"{REVIEWER_BUTTON_MARKER}\" "
-        "style=\"position:fixed;left:24px;bottom:20px;z-index:9999;\">"
-        f"<button onclick=\"pycmd('{REVIEWER_BUTTON_URL}')\" "
-        "title=\"Open BanGlish Context\" "
+        "style=\"position:fixed;left:24px;bottom:20px;z-index:9999;display:flex;gap:10px;\">"
+        + _reviewer_overlay_button(REVIEWER_BUTTON_URL, "BanGlish", "Open BanGlish Context", wide=True)
+        + _reviewer_overlay_button(REVIEWER_AUDIO_URL, "Audio", "Fetch Korean audio for the current note")
+        + _reviewer_overlay_button(REVIEWER_IMAGES_URL, "Images", "Quick add images for the current note")
+        + "</div>"
+    )
+
+
+def _reviewer_overlay_button(url: str, label: str, title: str, wide: bool = False) -> str:
+    min_width = "104px" if wide else "86px"
+    return (
+        f"<button onclick=\"pycmd('{url}')\" "
+        f"title=\"{title}\" "
         "style=\""
-        "min-width:104px;"
+        f"min-width:{min_width};"
         "height:36px;"
         "padding:0 16px;"
         "border-radius:999px;"
@@ -242,7 +256,7 @@ def _reviewer_button_html() -> str:
         "box-shadow:0 1px 2px rgba(0,0,0,0.08),0 3px 10px rgba(0,0,0,0.05);"
         "cursor:pointer;"
         "outline:none;"
-        "\">BanGlish</button></div>"
+        f"\">{label}</button>"
     )
 
 
@@ -255,12 +269,64 @@ def _inject_reviewer_overlay_button(web_content, context) -> None:
 
 
 def _handle_reviewer_overlay_click(handled, message: str, context):
-    if message != REVIEWER_BUTTON_URL:
-        return handled
     if not isinstance(context, Reviewer):
         return handled
-    _run_reviewer_flow(context)
-    return (True, None)
+    if message == REVIEWER_BUTTON_URL:
+        _run_reviewer_flow(context)
+        return (True, None)
+    if message == REVIEWER_AUDIO_URL:
+        _run_reviewer_audio(context)
+        return (True, None)
+    if message == REVIEWER_IMAGES_URL:
+        _run_reviewer_images(context)
+        return (True, None)
+    return handled
+
+
+def _addon_module_from_folder(folder_name: str):
+    module_name = f"_banglish_ext_{folder_name}"
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
+    addon_root = Path(mw.addonManager.addonsFolder()) / folder_name
+    init_path = addon_root / "__init__.py"
+    if not init_path.exists():
+        raise RuntimeError(f"Add-on {folder_name} is not installed.")
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        init_path,
+        submodule_search_locations=[str(addon_root)],
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load add-on {folder_name}.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_reviewer_audio(reviewer) -> None:
+    try:
+        module = _addon_module_from_folder("773249518")
+        fetch_audio = getattr(module, "fetch_audio_for_current_note", None)
+        if not callable(fetch_audio):
+            raise RuntimeError("The Korean audio add-on does not expose its current-note action.")
+        fetch_audio()
+    except Exception as exc:
+        get_logger(_addon_dir()).exception("Reviewer audio flow failed")
+        showWarning(str(exc))
+
+
+def _run_reviewer_images(reviewer) -> None:
+    try:
+        module = _addon_module_from_folder("8280891")
+        setup_gui = getattr(module, "setup_gui_for_reviewer", None)
+        if not callable(setup_gui):
+            raise RuntimeError("The Quick add images add-on does not expose its reviewer action.")
+        setup_gui(reviewer, quick_add=True)
+    except Exception as exc:
+        get_logger(_addon_dir()).exception("Reviewer quick images flow failed")
+        showWarning(str(exc))
 
 
 def _add_editor_button(buttons, editor):
