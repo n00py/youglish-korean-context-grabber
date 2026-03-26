@@ -1,69 +1,94 @@
-# YouGlish Korean Context Grabber
+# BanGlish
 
-An Anki desktop add-on for Korean vocabulary and sentence cards that now supports a local Kimchi-backed subtitle corpus API as its primary context source, while preserving the existing viewer, translation, and raw sentence-audio playback workflow.
+BanGlish is an Anki desktop add-on for Korean study cards. It searches a BanGlish subtitle corpus first, falls back to YouGlish when needed, lets you preview real Korean subtitle lines, and can extract a sentence-level audio clip locally.
+
+The project now has two parts:
+- the Anki add-on UI and local playback workflow
+- the BanGlish corpus builder and local API used as the primary context source
 
 ## Features
 
-- Adds an editor button labeled `YouGlish Context`
-- Adds `YouGlish Context` to the reviewer `More` menu during card review
-- Adds a browser bulk action labeled `Fetch YouGlish Context`
-- Reads the Korean search term from a configurable source field
-- Fetches multiple candidate YouGlish examples and ranks them for study-friendly use
-- Shows a read-only viewer for each note with:
-  - Korean sentence/context
+- Adds an editor button labeled `BanGlish Context`
+- Adds `BanGlish Context` to the reviewer `More` menu during card review
+- Adds a browser bulk action labeled `Fetch BanGlish Context`
+- Reads the search term from a configurable source field
+- Tries the BanGlish local corpus first and falls back to YouGlish only when BanGlish returns no results or is unavailable
+- Shows a read-only viewer with:
+  - Korean transcript text
   - match highlighting when possible
-  - source title when available
+  - source title
   - timestamp
-  - URL
+  - source/provider badge
   - duplicate warnings
-- Uses YouGlish for transcript text and timestamps, then extracts a local sentence audio clip with `yt-dlp` and `ffmpeg`
-- Can show an English translation for the selected sentence through DeepL Free when a local API key file is present
-- Adds a `YouGlish Context Settings...` entry under `Tools` so users can save or clear a DeepL key inside Anki
-- Starts a local Kimchi corpus API automatically when `context_provider` is set to `local_api`
-- Exposes Kimchi corpus status and backfill controls inside the settings dialog
-- Discovers high-quality Kimchi media items, resolves them to YouTube videos, and stores Korean manual subtitle cues in a local SQLite corpus
-- Automatically loops through browser cookies it can find and stops at the first browser that yields a usable YouTube audio stream
-- Plays the extracted sentence clip inline when Qt multimedia is available
-- Lets you refetch the current query with a larger result count from a dropdown in the viewer
-- Lets you explicitly append a liked clip into the note's `Sound` field when that field exists
-- Handles selected browser notes one-by-one with a viewer dialog for each note
-- Does not edit note fields unless you explicitly click `Append to Sound`
-- Logs provider and playback errors to `user_files/youglish_context.log`
+- Plays a sentence-level audio clip locally using `yt-dlp` and `ffmpeg`
+- Lets you copy the transcript text to the clipboard
+- Lets you append a liked clip to the note’s `Sound` field without overwriting existing audio
+- Can show an English translation through DeepL Free when a local API key is configured
+- Includes a settings dialog under `Tools > BanGlish Context Settings...`
+- Includes a BanGlish corpus builder and local HTTP API for Kimchi-backed subtitle search
 
-## Intended Anki Use
+## Current Corpus Strategy
 
-Designed for current Anki desktop add-on environments using Python and Qt/PyQt APIs exposed by Anki.
+The current BanGlish corpus builder:
+- uses Kimchi Reader as the discovery source
+- crawls learner-focused YouTube channels
+- ingests episode metadata
+- fetches Korean manual subtitle tracks only
+- rejects auto captions
+- stores subtitle cues in a local SQLite corpus
 
-For the raw-audio path, the host machine also needs:
+The current learner crawl uses:
+- `POST /v2/media/browse/unified`
+- `sources=["youtube_channel"]`
+- `made_for="learner"`
 
+## Runtime Requirements
+
+### Add-on / playback
+
+For transcript lookup and local sentence audio extraction, the host machine needs:
+- Anki desktop
 - `yt-dlp`
 - `ffmpeg`
-- at least one supported browser with usable YouTube cookies, typically Firefox, Chrome, or Safari
+- at least one supported browser with usable YouTube cookies when YouTube requires them
 
-For the local corpus path, the host machine also needs:
+### Corpus builder
 
+For the BanGlish corpus path, the host machine also needs:
 - outbound access to `api.kimchi-reader.app`
-- enough disk space for the SQLite database and cached subtitle files under `user_files/`
+- outbound access to YouTube subtitle/media endpoints
+- enough disk space for the SQLite DB and cached subtitle files
+
+## Data Location
+
+BanGlish stores runtime data outside the add-on folder:
+
+- data dir: `~/Library/Application Support/BanGlish`
+- corpus DB: `~/Library/Application Support/BanGlish/kimchi_corpus.sqlite3`
+- subtitle cache: `~/Library/Application Support/BanGlish/kimchi_subtitles`
+- audio cache: `~/Library/Application Support/BanGlish/audio_cache`
+- log file: `~/Library/Application Support/BanGlish/banglish.log`
+
+This keeps the large runtime corpus separate from the add-on source code.
 
 ## Install
 
-Copy the add-on folder into Anki's `addons21` directory, then restart Anki.
+Copy the add-on folder into Anki’s `addons21` directory, then restart Anki.
 
 Example:
 
 ```text
 addons21/
-  youglish_korean_context_grabber/
+  9834512704/
     __init__.py
     manifest.json
     config.json
     README.md
-    IMPLEMENTATION_NOTE.md
     config/
+    corpus/
     provider/
     services/
     ui/
-    user_files/
 ```
 
 ## Default Config
@@ -95,263 +120,119 @@ addons21/
 
 ## Config Options
 
-### Active options in the shipped `config.json`
+### Active options in `config.json`
 
 - `context_provider`
   - Default: `"local_api"`
-  - What it does: records the preferred context source, but the add-on now always tries the local Kimchi subtitle corpus first.
-  - Supported values:
-    - `local_api`: the intended primary mode.
-    - `youglish`: legacy value; the add-on still attempts the local corpus first, then falls back to the older providers.
-  - Important detail: local corpus results are always favored now. YouGlish is fallback-only when the local corpus is unavailable or returns no hits.
+  - BanGlish-local is the intended primary mode.
+  - The add-on still favors the local BanGlish corpus first even if the legacy YouGlish setting is used.
 
 - `source_field_name`
   - Default: `"Korean"`
-  - What it does: tells the add-on which note field to read when it needs the search term.
-  - When it matters: every fetch starts here in editor mode, browser mode, and review mode.
-  - Good reason to change it: your Korean text lives in a field called something like `Expression`, `Target`, or `Sentence`.
-  - Failure mode if wrong: the add-on will tell you the source field is missing or empty.
+  - The note field used as the search term.
 
 - `sound_field_name`
   - Default: `"Sound"`
-  - What it does: tells the `Append to Sound` action where to append the imported `[sound:...]` tag.
-  - Current behavior: it appends without overwriting existing audio, and new clips go on a new line.
-  - Good reason to change it: your audio field is named `Audio`, `Pronunciation`, `Native Audio`, or something else.
-  - Failure mode if wrong: the `Append to Sound` button stays disabled or reports that the field is missing.
+  - The field used by `Append to Sound`.
+  - New clips are appended on a new line instead of overwriting existing audio.
 
 - `translation_enabled`
   - Default: `true`
-  - What it does: allows the viewer to fetch and show an English translation for the selected Korean sentence.
-  - Important detail: this still requires a local DeepL API key file; enabling it does not store credentials in the repo config.
-  - Good reason to disable it: you do not want translation requests at all.
+  - Enables translation display in the viewer.
 
 - `translation_provider`
   - Default: `"deepl_free"`
-  - What it does: selects the translation backend.
-  - Current status: only `deepl_free` is implemented right now.
+  - Current implementation: DeepL Free only.
 
 - `translation_target_language`
   - Default: `"EN-US"`
-  - What it does: tells DeepL which English target to produce.
-  - Good alternatives: `EN-GB` if you prefer British spelling and phrasing.
+  - DeepL target language for the viewer translation.
 
 - `translation_timeout_seconds`
   - Default: `15`
-  - What it does: HTTP timeout for the translation request.
-  - Good reason to increase it: your network is slow.
-  - Good reason to decrease it: you want translation failures to surface faster.
+  - HTTP timeout for translation requests.
 
 - `local_api_base_url`
   - Default: `"http://127.0.0.1:8765"`
-  - What it does: points the add-on at the local Kimchi corpus HTTP API.
-  - Good reason to change it: you want the corpus server on another port or another machine.
+  - The BanGlish local API base URL.
 
 - `local_api_timeout_seconds`
   - Default: `5`
-  - What it does: timeout for local corpus API requests and startup health checks.
-  - Good reason to increase it: your local API is slow to start or your machine is heavily loaded.
+  - Timeout used for local API requests and health checks.
 
 - `max_candidates`
   - Default: `5`
-  - What it does: controls how many ranked YouGlish candidates the viewer shows for a search.
-  - Effective range: the add-on clamps this to `3` through `20`, even if you enter something outside that range.
-  - Viewer behavior: the picker also has a dropdown that lets you refetch the current query with any value from `3` to `20` without editing the config first.
-  - Lower values: faster to scan, less clutter.
-  - Higher values: more chances to find a good sentence, but more noise.
+  - Number of candidates shown by default.
+  - Effective clamp: `3` to `20`
+  - The viewer can refetch with any value in that range from its dropdown.
 
 - `exact_match_bias`
   - Default: `true`
-  - What it does: adds a ranking bonus to candidates that contain the exact query text.
-  - Important detail: this does not filter anything by itself; it just pushes exact matches higher.
-  - Good reason to disable it: you want broader contextual examples, including conjugated or nearby subtitle variants.
+  - Gives exact query matches a ranking bonus.
 
 - `exact_match_only`
   - Default: `false`
-  - What it does: filters out candidates that do not contain the exact query string.
-  - Important detail: this is stricter than `exact_match_bias`.
-  - Good reason to enable it: you only want literal hits for the exact Korean form on your card.
-  - Tradeoff: you may get fewer results or no results for inflected words, spacing variants, or noisier subtitles.
+  - Filters out candidates that do not contain the exact query string.
 
 - `max_sentence_length`
   - Default: `120`
-  - What it does: filters out very long subtitle lines before ranking.
-  - Unit: approximate character count of the sentence text returned by the provider.
-  - Lower values: cleaner, shorter, more study-friendly lines.
-  - Higher values: allows longer subtitle chunks, but increases clutter and subtitle noise.
+  - Filters out overly long subtitle lines before ranking.
 
 - `duplicate_detection_enabled`
   - Default: `true`
-  - What it does: checks whether a transcript sentence already appears in another note and flags duplicates in the viewer.
-  - Important detail: it warns and annotates; it does not block playback or selection.
-  - Good reason to disable it: you want slightly faster lookups or do not care about transcript reuse across notes.
+  - Warns when a transcript sentence already appears on another note.
 
 - `provider_order`
   - Default: `["scrape_fallback", "youglish_widget"]`
-  - What it does: controls which YouGlish provider adapter is tried first.
-  - `scrape_fallback`: currently the most reliable default in this add-on; it parses the YouGlish page/bootstrap payload.
-  - `youglish_widget`: the alternate adapter based on the YouGlish widget path.
-  - Good reason to change it: only if you are troubleshooting provider behavior or experimenting with a different fetch path.
+  - Controls YouGlish fallback provider order only.
+  - BanGlish local search is still preferred first.
 
 - `request_timeout_seconds`
   - Default: `12`
-  - What it does: sets the HTTP timeout for the YouGlish fetch layer.
-  - Important detail: this is for provider requests, not for `yt-dlp` audio extraction and not for `ffmpeg`.
-  - Lower values: fail faster on weak network conditions.
-  - Higher values: can help on slow connections, but also makes bad requests hang longer before erroring.
+  - HTTP timeout for YouGlish provider requests.
 
 - `user_agent`
   - Default: `"Anki YouGlish Korean Context Grabber/0.1"`
-  - What it does: sets the `User-Agent` header used by the fallback provider HTTP requests.
-  - Good reason to change it: almost none for normal use.
-  - Best practice: leave this alone unless you are debugging provider-specific request behavior.
+  - User agent for the legacy YouGlish fallback HTTP path.
 
-### Parsed by the code, but not part of the current recommended workflow
+### Legacy compatibility fields
 
-These come from the earlier note-writing version of the add-on. They are still parsed for compatibility, but the current UI does not use them in normal operation.
-
+These are still parsed for backward compatibility, but are not part of the current recommended workflow:
 - `destination_fields`
-  - Default:
-    ```json
-    {
-      "sentence": "Context Sentence",
-      "source": "Context Source",
-      "url": "Context URL",
-      "timestamp": "Context Timestamp",
-      "translation": "Context Translation"
-    }
-    ```
-  - Original purpose: map fetched data into note fields when writing context directly back to cards.
-  - Current status: not used by the current read-only viewer / `Append to Sound` flow.
-
 - `overwrite_existing`
-  - Default: `false`
-  - Original purpose: allow overwriting protected destination fields when writing note content.
-  - Current status: not used by the current workflow.
-
 - `protected_fields`
-  - Default:
-    ```json
-    [
-      "Context Sentence",
-      "Context Source",
-      "Context URL",
-      "Context Timestamp",
-      "Context Translation"
-    ]
-    ```
-  - Original purpose: list of fields that should not be overwritten unless explicitly allowed.
-  - Current status: not used by the current workflow.
 
-### Practical examples
+They belong to the older note-writing flow and are not used by the current read-only viewer / append-to-sound workflow.
 
-- If your Korean text is stored in `Expression`, change:
-  ```json
-  {
-    "source_field_name": "Expression"
-  }
-  ```
+## Notes on Search Behavior
 
-- If your note’s audio field is called `Audio`, change:
-  ```json
-  {
-    "sound_field_name": "Audio"
-  }
-  ```
+- BanGlish search prefers lower `complexity_score` items first.
+- The viewer also favors shorter sentences.
+- Korean dictionary-form searches now expand into a basic set of common conjugated surface forms.
+- BanGlish results are labeled `BanGlish`.
+- YouGlish fallback results are labeled `YouGlish`.
 
-- If you only want literal matches and fewer lines:
-  ```json
-  {
-    "exact_match_only": true,
-    "max_candidates": 4,
-    "max_sentence_length": 80
-  }
-  ```
+## Corpus CLI
 
-## DeepL Key Setup
-
-The DeepL API key is intentionally not stored in the tracked repo config.
-
-The easiest setup is now inside Anki:
-
-1. Open `Tools`
-2. Click `YouGlish Context Settings...`
-3. Paste your DeepL key
-4. Click `Save Key`
-
-To enable translation on a local install, put your key in:
-
-```text
-addons21/9834512704/user_files/deepl_api_key.txt
-```
-
-The file should contain only the key text on one line.
-
-Example:
-
-```text
-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx
-```
-
-Because `user_files/` is ignored by git in this repo, that key file will stay local-only unless you manually force-add it.
-
-## Kimchi Corpus Setup
-
-The settings dialog now includes local corpus controls:
-
-1. Open `Tools`
-2. Click `YouGlish Context Settings...`
-3. Use `Refresh Corpus Status` to confirm the local API and database path
-4. Click `Start/Resume Backfill` to populate the local Kimchi corpus
-5. Use `Recheck Subtitles` later to revisit subtitle availability on known videos
-
-The local corpus stores its data under:
-
-```text
-addons21/9834512704/user_files/kimchi_corpus.sqlite3
-addons21/9834512704/user_files/kimchi_subtitles/
-```
-
-You can also run the corpus tools outside Anki:
+The corpus builder can run outside Anki:
 
 ```bash
-PYTHONPATH=/path/to/anki python3 -m youglish_korean_context_grabber.corpus.cli stats
-PYTHONPATH=/path/to/anki python3 -m youglish_korean_context_grabber.corpus.cli backfill
-PYTHONPATH=/path/to/anki python3 -m youglish_korean_context_grabber.corpus.cli serve
+env PYTHONPATH=/path/to/anki python3 -m youglish_korean_context_grabber.corpus.cli --addon-dir "/path/to/addons21/9834512704" stats
 ```
 
-## Provider Integration
-
-The add-on depends on `BaseContextProvider` rather than talking directly to one upstream source from the UI.
-
-- `LocalCorpusProvider`
-  - primary adapter for current builds
-  - queries the local Kimchi-backed subtitle corpus API
-- `OptionalScrapeFallbackProvider`
-  - legacy fallback adapter
-  - parses the server-rendered bootstrap payload from the YouGlish Korean search page
-- `YouGlishProvider`
-  - secondary legacy adapter
-  - uses YouGlish's documented JavaScript widget when Qt web engine support is available in Anki
-
-This split is intentional so the fetch layer can be adjusted later without rewriting the note update or UI flows.
-This split is intentional so the fetch layer can be adjusted later without rewriting the viewer flow.
+Common commands:
+- `backfill`
+- `recheck-subtitles`
+- `stats`
+- `serve`
 
 ## Known Limitations
 
-- The local Kimchi corpus is only as good as the available Kimchi media feed and the YouTube subtitle availability behind those media items.
-- Subtitle ingestion currently keeps only Korean manual subtitles and intentionally rejects auto captions.
-- Raw audio extraction still depends on `yt-dlp`, `ffmpeg`, and usable browser cookies for YouTube on the local machine.
-- Inline playback of the extracted clip depends on the Qt multimedia components available in your Anki build.
-- Browser bulk mode is still one-note-at-a-time.
+- BanGlish only indexes videos with usable Korean manual subtitle tracks.
+- Videos with only auto captions or only hard-burned subtitles are intentionally excluded.
+- Audio extraction still depends on YouTube access behavior, browser cookies, and local `yt-dlp`/`ffmpeg`.
+- Some internal Python module/package names still reference the older `youglish_korean_context_grabber` package name for compatibility.
 
-## Runtime Files
+## Repository Naming Note
 
-The add-on writes logs under `user_files/`:
-
-- `youglish_context.log`
-
-## Development Notes
-
-Focused test coverage is included for:
-
-- ranking logic
+The repo and user-facing branding now use `BanGlish`, but the internal Python package name remains `youglish_korean_context_grabber` to avoid breaking the existing Anki add-on structure.
