@@ -32,6 +32,7 @@ from ..services.audio_clips import (
 )
 from ..services.logging_utils import get_logger
 from ..services.sound_field import append_clip_to_note_field, note_has_field
+from ..services.ttmik_cards import create_ttmik_card
 from ..services.translation_service import DeepLTranslationService, TranslationError
 
 
@@ -161,6 +162,7 @@ class CandidatePickerDialog(QDialog):
         self._audio_output = None
         self._audio_job_running = False
         self._translation_job_running = False
+        self._create_card_job_running = False
         self._translation_request_key = ""
         self._current_clip_path: Path | None = None
         self._current_clip_candidate: ContextCandidate | None = None
@@ -276,6 +278,8 @@ class CandidatePickerDialog(QDialog):
         self.copy_button.setEnabled(bool(candidates))
         self.append_sound_button = QPushButton("Append to Sound", self)
         self.append_sound_button.setEnabled(False)
+        self.create_ttmik_button = QPushButton("Create TTMIK Card", self)
+        self.create_ttmik_button.setEnabled(bool(candidates))
         self.done_button = QPushButton("Done", self)
         self.skip_button = QPushButton("Skip", self)
         self.refresh_button = QPushButton("Refresh Search", self)
@@ -287,6 +291,7 @@ class CandidatePickerDialog(QDialog):
         button_row.addWidget(self.stop_button)
         button_row.addWidget(self.copy_button)
         button_row.addWidget(self.append_sound_button)
+        button_row.addWidget(self.create_ttmik_button)
         button_row.addWidget(self.done_button)
         button_row.addWidget(self.skip_button)
         button_row.addWidget(self.refresh_button)
@@ -298,6 +303,7 @@ class CandidatePickerDialog(QDialog):
         qconnect(self.stop_button.clicked, self.stop_selected)
         qconnect(self.copy_button.clicked, self.copy_selected_to_clipboard)
         qconnect(self.append_sound_button.clicked, self.append_selected_to_sound)
+        qconnect(self.create_ttmik_button.clicked, self.create_ttmik_card_from_selected)
         qconnect(self.done_button.clicked, self.accept)
         qconnect(self.skip_button.clicked, lambda: self.done(RESULT_SKIP))
         qconnect(self.refresh_button.clicked, lambda: self.done(RESULT_REFRESH))
@@ -441,6 +447,111 @@ class CandidatePickerDialog(QDialog):
             self._refresh_note_views()
             tooltip(result.message)
         self._sync_append_button_state()
+
+    def create_ttmik_card_from_selected(self) -> None:
+        candidate = self.selected_candidate()
+        if candidate is None:
+            self._update_progress_status("Select a transcript before creating a TTMIK card.")
+            return
+        if self._create_card_job_running:
+            self._update_progress_status("TTMIK card creation is already running.")
+            return
+        if mw is None or getattr(mw, "col", None) is None:
+            self._update_progress_status("Anki collection access is not available here.")
+            return
+
+        self._create_card_job_running = True
+        self.create_ttmik_button.setEnabled(False)
+        self.play_button.setEnabled(False)
+        self.stop_button.setEnabled(False)
+        self.append_sound_button.setEnabled(False)
+        self._progress_lines = []
+        self._append_progress_line(f"Preparing a TTMIK card from: {candidate.sentence_text}")
+
+        def task() -> tuple[Path, str]:
+            clip_path = self._prepared_clip_path(candidate)
+            if clip_path is None:
+                self._worker_progress("Extracting sentence audio for the new TTMIK card...")
+                clip_path = self._audio_service.ensure_clip(
+                    candidate,
+                    progress_callback=self._worker_progress,
+                )
+            else:
+                self._worker_progress("Reusing the prepared sentence audio clip.")
+
+            translation = self._current_translation_text(candidate)
+            if translation:
+                self._worker_progress("Reusing the loaded English translation.")
+                return clip_path, translation
+
+            if not self._translation_enabled:
+                raise TranslationError("English translation is disabled in BanGlish settings.")
+            if not self._translation_service.is_configured():
+                raise TranslationError(
+                    "DeepL translation is not configured. Open Tools > BanGlish Context Settings... to add your key."
+                )
+            self._worker_progress("Loading an English translation for the new TTMIK card...")
+            translation = self._translation_service.translate_text(candidate.sentence_text.strip())
+            return clip_path, translation
+
+        def on_done(future) -> None:
+            self._create_card_job_running = False
+            self.create_ttmik_button.setEnabled(bool(self._candidates))
+            self.play_button.setEnabled(bool(self._candidates))
+            self.stop_button.setEnabled(True)
+            self._sync_append_button_state()
+            try:
+                clip_path, english_text = future.result()
+            except TranslationError as exc:
+                self._logger.warning("TTMIK card translation failed for %s: %s", candidate.sentence_text, exc)
+                self._update_progress_status(str(exc))
+                return
+            except AudioClipError as exc:
+                self._logger.warning("TTMIK card audio extraction failed for %s: %s", candidate.video_id, exc)
+                self._update_progress_status(str(exc))
+                return
+            except Exception as exc:
+                self._logger.exception("Unexpected TTMIK card creation failure for %s", candidate.video_id)
+                self._update_progress_status(f"TTMIK card creation failed: {exc}")
+                return
+
+            self._current_clip_candidate = candidate
+            self._current_clip_path = clip_path
+            self._prepared_clip_paths[self._candidate_cache_key(candidate)] = clip_path
+            self._set_translation_text(candidate, english_text)
+
+            result = create_ttmik_card(
+                col=mw.col,
+                candidate=candidate,
+                clip_path=clip_path,
+                english_text=english_text,
+            )
+            self._update_progress_status(result.message)
+            if result.success:
+                tooltip(result.message)
+            else:
+                self._logger.warning("TTMIK card creation failed: %s", result.message)
+
+        taskman = getattr(mw, "taskman", None)
+        if taskman is not None and hasattr(taskman, "run_in_background"):
+            taskman.run_in_background(task, on_done=on_done)
+            return
+
+        class _ImmediateFuture:
+            def __init__(self, value=None, error: Exception | None = None) -> None:
+                self._value = value
+                self._error = error
+
+            def result(self):
+                if self._error is not None:
+                    raise self._error
+                return self._value
+
+        try:
+            payload = task()
+            on_done(_ImmediateFuture(value=payload))
+        except Exception as exc:
+            on_done(_ImmediateFuture(error=exc))
 
     def _refresh_note_views(self) -> None:
         note_id = getattr(self._note, "id", 0)
@@ -659,7 +770,7 @@ class CandidatePickerDialog(QDialog):
                     self.translation_label.setText(f"Translation failed: {exc}")
                 return
             if self._translation_request_key == sentence_text:
-                self.translation_label.setText(translated_text)
+                self._set_translation_text(candidate, translated_text)
 
         taskman = getattr(mw, "taskman", None)
         if taskman is not None and hasattr(taskman, "run_in_background"):
@@ -682,9 +793,28 @@ class CandidatePickerDialog(QDialog):
         except Exception as exc:
             on_done(_ImmediateFuture(error=exc))
 
+    def _current_translation_text(self, candidate: ContextCandidate) -> str:
+        if self._translation_request_key != candidate.sentence_text.strip():
+            return ""
+        current_text = self.translation_label.text().strip()
+        if (
+            not current_text
+            or current_text == "Loading English translation..."
+            or current_text.startswith("Translation unavailable:")
+            or current_text.startswith("Translation failed:")
+            or current_text.startswith("DeepL translation is not configured")
+        ):
+            return ""
+        return current_text
+
+    def _set_translation_text(self, candidate: ContextCandidate, translated_text: str) -> None:
+        self._translation_request_key = candidate.sentence_text.strip()
+        self.translation_label.setText((translated_text or "").strip())
+
     def _sync_append_button_state(self) -> None:
         can_append = (
             not self._audio_job_running
+            and not self._create_card_job_running
             and self._current_clip_path is not None
             and self._note is not None
             and note_has_field(self._note, self._sound_field_name)
@@ -698,6 +828,10 @@ class CandidatePickerDialog(QDialog):
             self.append_sound_button.setToolTip(
                 f"Append the extracted clip into '{self._sound_field_name}'."
             )
+        self.create_ttmik_button.setEnabled(not self._audio_job_running and not self._create_card_job_running and bool(self._candidates))
+        self.create_ttmik_button.setToolTip(
+            "Create a new Talk To Me In Korean note in the common-sentences deck."
+        )
 
     def _candidate_cache_key(self, candidate: ContextCandidate | None) -> str:
         if candidate is None:
