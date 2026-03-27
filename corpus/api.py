@@ -140,7 +140,7 @@ class KimchiCorpusAPIServer:
         kimchi_id = row["kimchi_id"]
         youtube_video_id = row["youtube_video_id"]
         youtube_url = row["youtube_url"] or f"https://www.youtube.com/watch?v={youtube_video_id}"
-        kimchi_url = f"https://kimchi-reader.app/media/{kimchi_id}"
+        kimchi_url = f"https://kimchi-reader.app/explore/item/{kimchi_id}"
         source_title = row.get("name_ko") or row.get("name_en") or youtube_video_id
         return {
             "sentence_text": row["sentence_text"],
