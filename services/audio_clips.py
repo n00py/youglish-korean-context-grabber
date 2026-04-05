@@ -444,7 +444,7 @@ class YouGlishAudioClipService:
             f"{_clip_cache_key_seconds(clip_start_seconds)}_"
             f"{_clip_cache_key_seconds(clip_end_seconds)}"
         )
-        final_path = self._cache_dir / f"{clip_key}.m4a"
+        final_path = self._cache_dir / f"{clip_key}.mp3"
         self._emit(
             progress_callback,
             f"Preparing sentence clip {format_seconds_label(clip_start_seconds)} - {format_seconds_label(math.ceil(clip_end_seconds))}.",
@@ -779,7 +779,7 @@ class YouGlishAudioClipService:
             f"{duration:.3f}",
             "-vn",
             "-acodec",
-            "aac",
+            "libmp3lame",
             "-b:a",
             "160k",
             str(final_path),
