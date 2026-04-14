@@ -136,7 +136,7 @@ class CandidatePickerDialog(QDialog):
         note_label: str,
         note: object | None = None,
         sound_field_name: str = "Sound",
-        initial_max_candidates: int = 5,
+        initial_max_candidates: int = 20,
         translation_enabled: bool = True,
         translation_provider: str = "deepl_free",
         translation_target_language: str = "EN-US",

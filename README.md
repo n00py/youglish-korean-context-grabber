@@ -104,7 +104,7 @@ addons21/
   "translation_timeout_seconds": 15,
   "local_api_base_url": "http://127.0.0.1:8765",
   "local_api_timeout_seconds": 5,
-  "max_candidates": 5,
+  "max_candidates": 20,
   "exact_match_bias": true,
   "exact_match_only": false,
   "max_sentence_length": 120,
@@ -161,7 +161,7 @@ addons21/
   - Timeout used for local API requests and health checks.
 
 - `max_candidates`
-  - Default: `5`
+  - Default: `20`
   - Number of candidates shown by default.
   - Effective clamp: `3` to `20`
   - The viewer can refetch with any value in that range from its dropdown.

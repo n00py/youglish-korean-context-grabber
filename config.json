@@ -8,7 +8,7 @@
   "translation_timeout_seconds": 15,
   "local_api_base_url": "http://127.0.0.1:8765",
   "local_api_timeout_seconds": 5,
-  "max_candidates": 5,
+  "max_candidates": 20,
   "exact_match_bias": true,
   "exact_match_only": false,
   "max_sentence_length": 120,

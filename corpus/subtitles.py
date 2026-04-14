@@ -66,6 +66,13 @@ class SubtitleTrackResult:
     cues: list[SubtitleCue]
 
 
+@dataclass(frozen=True)
+class CommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
 def resolve_binary(addon_dir: Path, binary_name: str, fallback: str) -> str:
     bundled = addon_dir / ".venv" / "bin" / binary_name
     if bundled.exists():
@@ -74,6 +81,29 @@ def resolve_binary(addon_dir: Path, binary_name: str, fallback: str) -> str:
     if discovered:
         return discovered
     return fallback
+
+
+def _decode_subprocess_output(value: bytes | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _run_command(command: list[str], *, timeout: int | None = None) -> CommandResult:
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=False,
+        check=False,
+        timeout=timeout,
+    )
+    return CommandResult(
+        returncode=completed.returncode,
+        stdout=_decode_subprocess_output(completed.stdout),
+        stderr=_decode_subprocess_output(completed.stderr),
+    )
 
 
 def browser_cookie_order() -> tuple[str, ...]:
@@ -259,15 +289,7 @@ class ManualKoreanSubtitleFetcher:
             self._cleanup_prefix(youtube_video_id)
             self._emit(progress_callback, f"Trying Korean manual subtitles via {label}...")
             try:
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=YTDLP_TIMEOUT_SECONDS,
-                    check=False,
-                )
+                completed = _run_command(command, timeout=YTDLP_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 errors.append(f"{label}: timed out")
                 continue

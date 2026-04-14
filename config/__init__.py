@@ -39,7 +39,7 @@ class AddonConfig:
     destination_fields: DestinationFieldMapping = field(
         default_factory=DestinationFieldMapping
     )
-    max_candidates: int = 5
+    max_candidates: int = 20
     overwrite_existing: bool = False
     protected_fields: Tuple[str, ...] = (
         "Context Sentence",
@@ -70,7 +70,7 @@ def clamp_max_candidates(value: int | str | float | None) -> int:
     try:
         numeric_value = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        numeric_value = 5
+        numeric_value = 20
     return min(max(numeric_value, MIN_CANDIDATES), MAX_CANDIDATES)
 
 
@@ -102,7 +102,7 @@ def config_from_dict(payload: Mapping[str, Any] | None) -> AddonConfig:
         local_api_base_url=str(payload.get("local_api_base_url", "http://127.0.0.1:8765")),
         local_api_timeout_seconds=int(payload.get("local_api_timeout_seconds", 5)),
         destination_fields=destination_fields,
-        max_candidates=int(payload.get("max_candidates", 5)),
+        max_candidates=int(payload.get("max_candidates", 20)),
         overwrite_existing=bool(payload.get("overwrite_existing", False)),
         protected_fields=_tuple_from_iterable(
             payload.get("protected_fields"), AddonConfig().protected_fields

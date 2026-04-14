@@ -69,9 +69,39 @@ class SubtitleTrackSelection:
     source_kind: str
 
 
+@dataclass(frozen=True)
+class CommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
 def _normalized_sentence_text(text: str) -> str:
     value = re.sub(r"\s+", "", text or "")
     return value.strip("\"'`.,!?[](){}<>")
+
+
+def _decode_subprocess_output(value: bytes | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _run_command(command: list[str], *, timeout: int | None = None) -> CommandResult:
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=False,
+        check=False,
+        timeout=timeout,
+    )
+    return CommandResult(
+        returncode=completed.returncode,
+        stdout=_decode_subprocess_output(completed.stdout),
+        stderr=_decode_subprocess_output(completed.stderr),
+    )
 
 
 def _normalized_caption_text(text: str) -> str:
@@ -604,15 +634,7 @@ class YouGlishAudioClipService:
             command[1:1] = ["--remote-components", "ejs:npm"]
 
             try:
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    check=False,
-                    timeout=YTDLP_ATTEMPT_TIMEOUT_SECONDS,
-                )
+                completed = _run_command(command, timeout=YTDLP_ATTEMPT_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 self._emit(
                     progress_callback,
@@ -703,15 +725,7 @@ class YouGlishAudioClipService:
             command[1:1] = ["--remote-components", "ejs:npm"]
 
             try:
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    check=False,
-                    timeout=YTDLP_ATTEMPT_TIMEOUT_SECONDS,
-                )
+                completed = _run_command(command, timeout=YTDLP_ATTEMPT_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 errors.append(
                     f"{browser}: timed out after {YTDLP_ATTEMPT_TIMEOUT_SECONDS} seconds"
@@ -784,14 +798,7 @@ class YouGlishAudioClipService:
             "160k",
             str(final_path),
         ]
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
+        completed = _run_command(command)
         if completed.returncode != 0:
             error_text = completed.stderr.strip() or completed.stdout.strip()
             self._logger.error(
